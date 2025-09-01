@@ -1,0 +1,8 @@
+{
+  "latest": "0.0.1",
+  "updateurl": "https://raw.githubusercontent.com/qrlk/moonloader-script-updater/master/minified-example.lua",
+  "changelog": [
+    "Добавлено автообновление.",
+    "С 1-ым сентября!!"
+  ]
+}
