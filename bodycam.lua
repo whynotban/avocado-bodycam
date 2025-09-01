@@ -1,29 +1,25 @@
 -- bodycam.lua
 script_name('avocado - bodycam')
 script_author('whynotban')
-script_version('0.0.1')
-
+script_version('0.0.2')
 require('lib.moonloader')
 local imgui = require('mimgui')
 local inicfg = require('inicfg')
 local vkeys =require('vkeys')
 local json = require('cjson')
+local effil = require 'effil'
 local samp = require('lib.samp.events')
 local fa = require('fAwesome6_solid')
 local encoding = require('encoding')
 encoding.default = 'CP1251'
 u8 = encoding.UTF8
 local wm = require 'lib.windows.message'
-
 local FULL_CONFIG_DIR = 'moonloader/config/bodycam'
 local INICFG_RELATIVE_PATH = 'bodycam/config.ini'
-
 local STATS_FILE = FULL_CONFIG_DIR .. '/stats.json'
 local sw, sh = getScreenResolution()
-
 if not doesDirectoryExist('moonloader/config') then createDirectory('moonloader/config') end
 if not doesDirectoryExist(FULL_CONFIG_DIR) then createDirectory(FULL_CONFIG_DIR) end
-
 local config = inicfg.load({
     main = {
         toggleKey = vkeys.VK_F2,
@@ -38,13 +34,48 @@ local config = inicfg.load({
         prefix = "[" .. string.upper(thisScript().name) .. "]: "
     }
 }, INICFG_RELATIVE_PATH)
-
--- ####################### AUTO-UPDATER WITH SEMVER SUPPORT #######################
+local showUpdateWindow = imgui.new.bool(false)
+local updateInfo = { version = '', changelog = {}, url = '' }
+function asyncHttpRequest(method, url, args, resolve, reject)
+   local request_thread = effil.thread(function (method, url, args)
+      local requests = require 'requests'
+      local result, response = pcall(requests.request, method, url, args)
+      if result then
+         response.json, response.xml = nil, nil
+         return true, response
+      else
+         return false, response
+      end
+   end)(method, url, args)
+   if not resolve then resolve = function() end end
+   if not reject then reject = function() end end
+   lua_thread.create(function()
+      local runner = request_thread
+      while true do
+         local status, err = runner:status()
+         if not err then
+            if status == 'completed' then
+               local result, response = runner:get()
+               if result then
+                  resolve(response)
+               else
+                  reject(response)
+               end
+               return
+            elseif status == 'canceled' then
+               return reject(status)
+            end
+         else
+            return reject(err)
+         end
+         wait(0)
+      end
+   end)
+end
 function isVersionNewer(onlineVersion, currentVersion)
     local onlineParts, currentParts = {}, {}
     for part in onlineVersion:gmatch("([%d]+)") do table.insert(onlineParts, tonumber(part)) end
     for part in currentVersion:gmatch("([%d]+)") do table.insert(currentParts, tonumber(part)) end
-
     for i = 1, math.max(#onlineParts, #currentParts) do
         local online = onlineParts[i] or 0
         local current = currentParts[i] or 0
@@ -53,41 +84,45 @@ function isVersionNewer(onlineVersion, currentVersion)
     end
     return false
 end
-
+function startUpdateDownload()
+    if updateInfo.url == '' then return end
+    sampAddChatMessage(config.update_config.prefix .. "{FFFFFF}Начинаю загрузку...", -1)
+    asyncHttpRequest('GET', updateInfo.url, {redirect = true},
+        function(response_file)
+            if response_file.status_code == 200 then
+                local file = io.open(thisScript().path, "w")
+                if file then
+                    file:write(response_file.text)
+                    file:close()
+                    sampAddChatMessage(config.update_config.prefix .. "{00FF00}Обновление успешно завершено! Скрипт будет перезагружен.", -1)
+                    thisScript():reload()
+                else
+                    sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось сохранить обновленный файл.", -1)
+                end
+            else
+                sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось скачать обновление. Попробуйте позже.", -1)
+            end
+        end,
+        function(err)
+            sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось скачать обновление. Попробуйте позже.", -1)
+        end
+    )
+    showUpdateWindow[0] = false
+end
 function checkForUpdate()
     local url = config.update_config.json_url .. "?" .. os.time()
-
-    downloadUrlToFile(url, os.tmpname(), function(id, status, p1, p2)
-        if status == require('moonloader').download_status.STATUSEX_ENDDOWNLOAD then
-            local file = io.open(os.tmpname(), "r")
-            if file and file:seek("end") > 0 then
-                file:seek("set")
-                local json_string = file:read("*a")
-                file:close()
-                os.remove(os.tmpname())
-
-                local success, data = pcall(json.decode, json_string)
+    asyncHttpRequest('GET', url, nil,
+        function(response)
+            if response.status_code == 200 then
+                local success, data = pcall(json.decode, response.text)
                 if success and type(data) == "table" then
                     if data.latest and isVersionNewer(data.latest, thisScript().version) then
-                        sampAddChatMessage(config.update_config.prefix .. "{FFFFFF}Обнаружено обновление! Новая версия: {00FF00}" .. data.latest, -1)
-
-                        if data.changelog and type(data.changelog) == "table" then
-                            sampAddChatMessage(config.update_config.prefix .. "{FFFFFF}Список изменений:", -1)
-                            for _, line in ipairs(data.changelog) do
-                                sampAddChatMessage("{CCCCCC}- " .. line, -1)
-                            end
-                        end
-
-                        sampAddChatMessage(config.update_config.prefix .. "{FFFFFF}Начинаю загрузку...", -1)
-
-                        downloadUrlToFile(data.updateurl, thisScript().path, function(id, status, p1, p2)
-                            if status == require('moonloader').download_status.STATUSEX_ENDDOWNLOAD then
-                                sampAddChatMessage(config.update_config.prefix .. "{00FF00}Обновление успешно завершено! Скрипт будет перезагружен.", -1)
-                                thisScript():reload()
-                            elseif status == require('moonloader').download_status.STATUSEX_CONNCENT_FAIL or status == require('moonloader').download_status.STATUSEX_REQUEST_SENT_FAIL then
-                                sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось скачать обновление. Попробуйте позже.", -1)
-                            end
-                        end)
+                        updateInfo.version = data.latest
+                        updateInfo.changelog = data.changelog or {}
+                        updateInfo.url = data.updateurl
+                        showUpdateWindow[0] = true
+                    else
+                        sampAddChatMessage(config.update_config.prefix .. "{FF0000}Обновление не требуется.", -1)
                     end
                 else
                     sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка проверки обновления. Возможно, файл на сервере поврежден.", -1)
@@ -95,21 +130,21 @@ function checkForUpdate()
             else
                 sampAddChatMessage(config.update_config.prefix .. "{FF0000}Не удалось проверить обновление. Проверьте вручную: {FFFFFF}" .. config.update_config.project_url, -1)
             end
+        end,
+        function(err)
+            sampAddChatMessage(config.update_config.prefix .. "{FF0000}Не удалось проверить обновление. Проверьте вручную: {FFFFFF}" .. config.update_config.project_url, -1)
         end
-    end)
+    )
 end
-
 local settings = {
     displayMode = imgui.new.int(config.main.displayMode - 1),
     collectStats = imgui.new.bool(config.main.collectStats)
 }
 local displayModes = { u8('Анимированный'), u8('Статичный') }
 local displayModes_c = imgui.new['const char*'][#displayModes](displayModes)
-
 local keyNames = {}
 for name, code in pairs(vkeys) do keyNames[code] = name:gsub('VK_', '') end
 local stats = {}
-
 local uid = 'N/A'
 local isRecording = false
 local recordingStartTime = 0
@@ -117,24 +152,20 @@ local recordingStartDateStr = ''
 local isWaitingForUid = false
 local uidRequestTime = 0
 local isPositioningMode = false
-
 local showSettings = imgui.new.bool(false)
 local isWaitingForKeybind = false
 local windowAlpha = 0.0
 local animationStartTime = 0
 local ANIMATION_DURATION = 0.3
-
 imgui.OnInitialize(function()
     imgui.GetIO().IniFilename = nil
     fa.Init(16)
 end)
-
 local function saveConfig()
     config.main.displayMode = settings.displayMode[0] + 1
     config.main.collectStats = settings.collectStats[0]
     inicfg.save(config, INICFG_RELATIVE_PATH)
 end
-
 local function loadStats()
     if doesFileExist(STATS_FILE) then
         local file = io.open(STATS_FILE, 'r')
@@ -152,7 +183,6 @@ local function loadStats()
         stats = {}
     end
 end
-
 local function saveStats()
     local year_ago_timestamp = os.time() - (365 * 24 * 60 * 60)
     for date_str, recordings in pairs(stats) do
@@ -172,10 +202,8 @@ local function saveStats()
         end
     end)
 end
-
 local function addRecordingToStats(startTime, duration)
     if not config.main.collectStats then return end
-
     local date_str = os.date('%Y-%m-%d', startTime)
     if not stats[date_str] then
         stats[date_str] = {}
@@ -183,7 +211,6 @@ local function addRecordingToStats(startTime, duration)
     table.insert(stats[date_str], { start_time = startTime, duration_seconds = duration })
     saveStats()
 end
-
 function triggerUidFetch()
     local id = select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))
     local nick = sampGetPlayerNickname(id)
@@ -195,7 +222,6 @@ function triggerUidFetch()
         sampAddChatMessage('{808080}[Bodycam]: {FF0000}Не удалось получить ваш никнейм.', -1)
     end
 end
-
 function toggleRecording()
     isRecording = not isRecording
     animationStartTime = os.clock()
@@ -209,28 +235,22 @@ function toggleRecording()
         end
     end
 end
-
 function calculateAlpha()
     if config.main.displayMode == 2 then
         windowAlpha = 1.0
         return
     end
-
     local progress = (os.clock() - animationStartTime) / ANIMATION_DURATION
     if progress > 1.0 then progress = 1.0 end
-
     if isRecording then
-        windowAlpha = progress -- Анимация появления
+        windowAlpha = progress
     else
-        windowAlpha = 1.0 - progress -- Анимация исчезновения
+        windowAlpha = 1.0 - progress
     end
 end
-
 function onWindowMessage(msg, wparam, lparam)
     if wparam == vkeys.VK_LBUTTON then
         if msg == wm.WM_LBUTTONDOWN then
-
-            -- Режим перемещения оверлея
             if isPositioningMode then
                 local x, y = getCursorPos()
                 config.main.posX, config.main.posY = x, y
@@ -241,12 +261,13 @@ function onWindowMessage(msg, wparam, lparam)
         end
     end
     if wparam == vkeys.VK_ESCAPE then
-        if showSettings[0] then
+        if showSettings[0] or showUpdateWindow[0] then
             if msg == wm.WM_KEYDOWN then
                 consumeWindowMessage(true, false)
             end
             if msg == wm.WM_KEYUP then
                 showSettings[0] = false
+                showUpdateWindow[0] = false
             end
         end
         if isPositioningMode then
@@ -260,15 +281,12 @@ function onWindowMessage(msg, wparam, lparam)
         end
     end
 end
-
 samp.onPlayerSpawn = function()
-    -- Запрашиваем UID через 3 секунды после спавна
     lua_thread.create(function()
         wait(3000)
         triggerUidFetch()
     end)
 end
-
 samp.onServerMessage = function(color, text)
     if isWaitingForUid then
         local found_uid = text:match('UID:%s*(%d+)')
@@ -276,43 +294,29 @@ samp.onServerMessage = function(color, text)
             uid = found_uid
             isWaitingForUid = false
             sampAddChatMessage('{808080}[Bodycam]: {FFFFFF}UID {00FF00}' .. uid .. '{FFFFFF} успешно получен.', -1)
-            return false -- Скрываем сообщение из чата
+            return false
         end
     end
 end
-
--- // Основная логика скрипта
 function main()
     if not isSampLoaded() or not isSampfuncsLoaded() then return end
     while not isSampAvailable() do wait(100) end
-
-    lua_thread.create(function()
-        wait(3000)
-        checkForUpdate()
-    end)
-
+    lua_thread.create(checkForUpdate)
     loadStats()
     sampRegisterChatCommand('bcam', function()
         showSettings[0] = not showSettings[0]
     end)
-
-    -- Первичный запрос UID через 5 секунд после запуска скрипта
     lua_thread.create(function()
         wait(5000)
         triggerUidFetch()
     end)
-
     while true do
         wait(0)
-
-        -- Обработка горячей клавиши включения/выключения
         if not isPauseMenuActive() and not sampIsChatInputActive() and not sampIsDialogActive() and not isPositioningMode then
             if isKeyJustPressed(config.main.toggleKey) and not showSettings[0] then
                 toggleRecording()
             end
         end
-
-        -- Ожидание нажатия клавиши для бинда
         if isWaitingForKeybind then
             for i = 1, 255 do
                 if isKeyJustPressed(i) then
@@ -329,39 +333,29 @@ function main()
                 end
             end
         end
-
-        -- Таймаут для запроса UID
         if isWaitingForUid and os.time() - uidRequestTime > 5 then
             sampAddChatMessage('{808080}[Bodycam]: {FF0000}Таймаут ожидания ответа от сервера на команду /id.', -1)
             isWaitingForUid = false
         end
-
     end
 end
-
--- // ---------- Отрисовка ImGui ----------
-
--- Окно с информацией о записи (оверлей)
 local bodycamFrame = imgui.OnFrame(
-    function() -- Условие отрисовки
+    function()
         return ((config.main.displayMode == 2) or (isRecording or windowAlpha > 0) or isPositioningMode)
             and not isPauseMenuActive()
             and not sampIsChatInputActive()
             and not sampIsDialogActive()
     end,
-    function(self) -- Функция отрисовки
+    function(self)
         calculateAlpha()
         if windowAlpha <= 0 and not isPositioningMode then return end
-
         local currentAlpha = isPositioningMode and 1.0 or windowAlpha
         imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, currentAlpha)
         imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(8, 6))
         imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.06, 0.06, 0.06, 0.85))
         imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(0.9, 0.9, 0.9, 1.0))
-
         local flags = imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoScrollbar + imgui.WindowFlags.NoCollapse + imgui.WindowFlags.AlwaysAutoResize
         local windowName = 'Bodycam Overlay'
-
         if isPositioningMode then
             windowName = windowName .. '##Positioning'
             local x, y = getCursorPos()
@@ -370,29 +364,20 @@ local bodycamFrame = imgui.OnFrame(
             flags = flags + imgui.WindowFlags.NoMove
             imgui.SetNextWindowPos(imgui.ImVec2(config.main.posX, config.main.posY), imgui.Cond.Always)
         end
-
         imgui.Begin(windowName, nil, flags)
-
         local drawList = imgui.GetWindowDrawList()
         local wPos = imgui.GetWindowPos()
         local wSize = imgui.GetWindowSize()
-
-        -- Иконка и текст "bodycam #UID"
         local baseY = imgui.GetCursorPosY() + 2
         imgui.SetCursorPosY(baseY + 3)
         imgui.Text(fa.VIDEO)
         imgui.SameLine()
         imgui.SetCursorPosY(baseY)
         imgui.Text('bodycam #' .. uid)
-
         imgui.SameLine(0, 15)
-
-        -- Координаты для мигающей точки
         local dotX = wPos.x + wSize.x - 12
         local dotY = wPos.y + (imgui.GetTextLineHeight() / 2) + 8
-
         if isRecording then
-            -- Мигающая красная точка
             if math.floor(os.clock() * 1.5) % 2 == 0 then
                 local color = imgui.ColorConvertFloat4ToU32(imgui.ImVec4(1, 0, 0, 1))
                 drawList:AddCircleFilled(imgui.ImVec2(dotX, dotY), 5, color)
@@ -405,38 +390,30 @@ local bodycamFrame = imgui.OnFrame(
             local s = elapsed % 60
             imgui.Text(string.format('%02d:%02d:%02d', h, m, s) .. u8(' с начала записи'))
         else
-            -- Серая точка
             local color = imgui.ColorConvertFloat4ToU32(imgui.ImVec4(0.5, 0.5, 0.5, 1))
             drawList:AddCircleFilled(imgui.ImVec2(dotX, dotY), 5, color)
             imgui.NewLine()
             imgui.Text(u8('Запись неактивна'))
         end
-
         if isPositioningMode then
             imgui.NewLine()
             imgui.TextColored(imgui.ImVec4(1, 1, 0, 1), u8('--- РЕЖИМ ПЕРЕМЕЩЕНИЯ ---'))
             imgui.Text(u8('ЛКМ - сохранить, ESC - отмена'))
         end
-
         imgui.End()
         imgui.PopStyleColor(2)
         imgui.PopStyleVar(2)
     end
 )
-
--- Окно настроек
 local settingsFrame = imgui.OnFrame(
-    function() -- Условие отрисовки
+    function()
         return showSettings[0]
     end,
-    function(self) -- Функция отрисовки
+    function(self)
         imgui.SetNextWindowSize(imgui.ImVec2(450, 320), imgui.Cond.FirstUseEver)
         imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
         imgui.Begin(u8('Настройки Bodycam'), showSettings, imgui.WindowFlags.NoCollapse)
-
         imgui.Text(u8('Основные настройки')); imgui.Separator()
-
-        -- Кнопка смены клавиши
         local keyName = keyNames[config.main.toggleKey] or ('KEY_' .. config.main.toggleKey)
         imgui.Text(u8('Текущая клавиша активации: ') .. keyName)
         local btnTxt = isWaitingForKeybind and u8('Нажмите любую клавишу... (ESC для отмены)') or u8('Изменить клавишу')
@@ -444,21 +421,16 @@ local settingsFrame = imgui.OnFrame(
             isWaitingForKeybind = not isWaitingForKeybind
         end
         imgui.SameLine()
-
-        -- Кнопка изменения положения
         if imgui.Button(u8('Изменить положение'), imgui.ImVec2(0, 0)) then
             isPositioningMode = true
             showSettings[0] = false
         end
         if imgui.IsItemHovered() then imgui.SetTooltip(u8('Позволяет перетащить меню записи в иное место.')) end
         imgui.SameLine()
-
-        -- Кнопка обновления UID
         if imgui.Button(u8('Обновить UID'), imgui.ImVec2(0, 0)) then
             triggerUidFetch()
         end
         if imgui.IsItemHovered() then imgui.SetTooltip(u8('Обновляет ID аккаунта.')) end
-
         imgui.Spacing()
         imgui.Text(u8('Режим отображения')); imgui.Separator()
         imgui.PushItemWidth(-1)
@@ -467,13 +439,38 @@ local settingsFrame = imgui.OnFrame(
         end
         imgui.PopItemWidth()
         if imgui.IsItemHovered() then imgui.SetTooltip(u8('Выберите, как будет отображаться меню записи.')) end
-
         imgui.Spacing()
         imgui.Text(u8('Данные')); imgui.Separator()
         if imgui.Checkbox(u8('Ведение статистики'), settings.collectStats) then
             saveConfig()
         end
-
+        imgui.End()
+    end
+)
+local updateFrame = imgui.OnFrame(
+    function()
+        return showUpdateWindow[0]
+    end,
+    function(self)
+        imgui.SetNextWindowSize(imgui.ImVec2(400, 250), imgui.Cond.FirstUseEver)
+        imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
+        imgui.Begin(u8('Доступно обновление!'), showUpdateWindow, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
+        imgui.Text(u8('Новая версия: ' .. updateInfo.version))
+        imgui.Separator()
+        imgui.Text(u8('Список изменений:'))
+        imgui.BeginChild('Changelog', imgui.ImVec2(0, -40), true)
+        for _, line in ipairs(updateInfo.changelog) do
+            imgui.TextWrapped(u8('- ' .. line))
+        end
+        imgui.EndChild()
+        imgui.Separator()
+        if imgui.Button(u8('Обновить и перезагрузить'), imgui.ImVec2(imgui.GetContentRegionAvail().x * 0.5 - 2, 0)) then
+            startUpdateDownload()
+        end
+        imgui.SameLine()
+        if imgui.Button(u8('Отмена'), imgui.ImVec2(-1, 0)) then
+            showUpdateWindow[0] = false
+        end
         imgui.End()
     end
 )
