@@ -121,7 +121,7 @@ local function startUpdateDownload()
         function(response_file)
             if response_file.status_code == 200 then
                 local file = io.open(thisScript().path, "w")
-                sampAddChatMessage("Устанавливаю обновление")
+                print("Установка обновления...(v.".. thisScript().version ..")")
                 if file then
                     showCursor(false)
                     file:write(u8:decode(response_file.text))
