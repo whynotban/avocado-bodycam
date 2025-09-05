@@ -1,6 +1,7 @@
+---@diagnostic disable: undefined-global, assign-type-mismatch, cast-local-type
 script_name('avocado - bodycam')
 script_author('whynotban and constersuonsis')
-script_version('0.0.3')
+script_version('0.0.4')
 
 require('lib.moonloader')
 local imgui = require('mimgui')
@@ -12,7 +13,7 @@ local samp = require('lib.samp.events')
 local fa = require('fAwesome6_solid')
 local encoding = require('encoding')
 encoding.default = 'CP1251'
-u8 = encoding.UTF8
+local u8 = encoding.UTF8
 local wm = require('lib.windows.message')
 
 local FULL_CONFIG_DIR = 'moonloader/config/bodycam'
@@ -57,7 +58,6 @@ local isWaitingForKeybind = false
 local windowAlpha = 0.0
 local animationStartTime = 0
 local ANIMATION_DURATION = 0.3
-local showUpdateWindow = imgui.new.bool(false)
 local updateInfo = { version = '', changelog = {}, url = '' }
 local displayModes = { u8('Анимированный'), u8('Статичный') }
 local displayModes_c = imgui.new['const char*'][#displayModes](displayModes)
@@ -121,22 +121,16 @@ local function startUpdateDownload()
         function(response_file)
             if response_file.status_code == 200 then
                 local file = io.open(thisScript().path, "w")
+                sampAddChatMessage("Устанавливаю обновление")
                 if file then
+                    showCursor(false)
                     file:write(u8:decode(response_file.text))
                     file:close()
                     thisScript():reload()
-                else
-                    sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось сохранить обновленный файл.", -1)
                 end
-            else
-                sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось скачать обновление. Попробуйте позже.", -1)
             end
-        end,
-        function(err)
-            sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка: не удалось скачать обновление. Попробуйте позже.", -1)
         end
     )
-    showUpdateWindow[0] = false
 end
 
 local function checkForUpdate()
@@ -149,19 +143,10 @@ local function checkForUpdate()
                         updateInfo.version = data.latest
                         updateInfo.changelog = data.changelog or {}
                         updateInfo.url = data.updateurl
-                        showUpdateWindow[0] = true
-                    else
-                        -- sampAddChatMessage(config.update_config.prefix .. "{FF0000}Обновление не требуется.", -1)
+                        startUpdateDownload()
                     end
-                else
-                    --sampAddChatMessage(config.update_config.prefix .. "{FF0000}Ошибка проверки обновления.", -1)
                 end
-            else
-                --sampAddChatMessage(config.update_config.prefix .. "{FF0000}Не удалось проверить обновление.", -1)
             end
-        end,
-        function(err)
-            --sampAddChatMessage(config.update_config.prefix .. "{FF0000}Не удалось проверить обновление.", -1)
         end
     )
 end
@@ -259,11 +244,10 @@ function onWindowMessage(msg, wparam, lparam)
             sampAddChatMessage('{808080}[Bodycam]: {FFFF00}Изменение позиции отменено.', -1)
         end
     end
-    if (showSettings[0] or showUpdateWindow[0]) and wparam == vkeys.VK_ESCAPE then
+    if showSettings[0] and wparam == vkeys.VK_ESCAPE then
         if msg == wm.WM_KEYDOWN then consumeWindowMessage(true, false) end
         if msg == wm.WM_KEYUP then
             showSettings[0] = false
-            showUpdateWindow[0] = false
         end
     end
 end
@@ -401,28 +385,6 @@ local settingsFrame = imgui.OnFrame(
         imgui.Spacing()
         imgui.Text(u8('Данные')); imgui.Separator()
         if imgui.Checkbox(u8('Ведение статистики'), settings.collectStats) then saveConfig() end
-        imgui.End()
-    end
-)
-
-local updateFrame = imgui.OnFrame(
-    function() return showUpdateWindow[0] end,
-    function(self)
-        imgui.SetNextWindowSize(imgui.ImVec2(400, 250), imgui.Cond.FirstUseEver)
-        imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh / 2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.Begin(u8('Доступно обновление!'), showUpdateWindow, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
-        imgui.Text(u8('Новая версия: ' .. updateInfo.version))
-        imgui.Separator()
-        imgui.Text(u8('Список изменений:'))
-        imgui.BeginChild('Changelog', imgui.ImVec2(0, -40), true)
-        for _, line in ipairs(updateInfo.changelog) do
-            imgui.TextWrapped('- ' .. u8:decode(line))
-        end
-        imgui.EndChild()
-        imgui.Separator()
-        if imgui.Button(u8('Обновить и перезагрузить'), imgui.ImVec2(imgui.GetContentRegionAvail().x, 0)) then
-            startUpdateDownload()
-        end
         imgui.End()
     end
 )
