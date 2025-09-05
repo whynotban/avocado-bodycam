@@ -1,8 +1,7 @@
 {
-  "latest": "0.0.2",
+  "latest": "0.0.3",
   "updateurl": "https://raw.githubusercontent.com/whynotban/avocado-bodycam/refs/heads/main/bodycam.lua",
   "changelog": [
-    "Добавлено автообновление.",
     "С 1-ым сентября!!"
   ]
 }
