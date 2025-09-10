@@ -1,7 +1,7 @@
 ---@diagnostic disable: undefined-global, assign-type-mismatch, cast-local-type
 script_name('avocado - bodycam')
 script_author('whynotban and constersuonsis')
-script_version('0.0.4')
+script_version('0.0.5')
 
 require('lib.moonloader')
 local imgui = require('mimgui')
@@ -116,12 +116,10 @@ local function isVersionNewer(onlineVersion, currentVersion)
 end
 
 local function startUpdateDownload()
-    if updateInfo.url == '' then return end
     asyncHttpRequest('GET', updateInfo.url, { redirect = true },
         function(response_file)
             if response_file.status_code == 200 then
                 local file = io.open(thisScript().path, "w")
-                print("Установка обновления...(v.".. thisScript().version ..")")
                 if file then
                     showCursor(false)
                     file:write(u8:decode(response_file.text))
@@ -143,7 +141,10 @@ local function checkForUpdate()
                         updateInfo.version = data.latest
                         updateInfo.changelog = data.changelog or {}
                         updateInfo.url = data.updateurl
-                        startUpdateDownload()
+                        print("Установка обновления...(v.".. thisScript().version ..")")
+                        if #updateInfo.url > 0 then startUpdateDownload() end
+                    else
+                        print("Обновление не требуется.(v.".. thisScript().version ..")")
                     end
                 end
             end
@@ -265,7 +266,7 @@ samp.onServerMessage = function(color, text)
         if found_uid then
             uid = found_uid
             isWaitingForUid = false
-            --sampAddChatMessage('{808080}[Bodycam]: {FFFFFF}UID {00FF00}' .. uid .. '{FFFFFF} успешно получен.', -1)
+            sampAddChatMessage('{808080}[Bodycam]: {FFFFFF}UID {00FF00}' .. uid .. '{FFFFFF} успешно получен.', -1)
             return false
         end
     end
