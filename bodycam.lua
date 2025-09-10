@@ -58,7 +58,7 @@ local isWaitingForKeybind = false
 local windowAlpha = 0.0
 local animationStartTime = 0
 local ANIMATION_DURATION = 0.3
-local updateInfo = { version = '', changelog = {}, url = '' }
+local updateInfo = { version = '', url = '' }
 local displayModes = { u8('Анимированный'), u8('Статичный') }
 local displayModes_c = imgui.new['const char*'][#displayModes](displayModes)
 local keyNames = {}
@@ -139,7 +139,6 @@ local function checkForUpdate()
                 if success and type(data) == "table" then
                     if data.latest and isVersionNewer(data.latest, thisScript().version) then
                         updateInfo.version = data.latest
-                        updateInfo.changelog = data.changelog or {}
                         updateInfo.url = data.updateurl
                         print("Установка обновления...(v.".. thisScript().version ..")")
                         if #updateInfo.url > 0 then startUpdateDownload() end
