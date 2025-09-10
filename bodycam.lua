@@ -1,7 +1,7 @@
 ---@diagnostic disable: undefined-global, assign-type-mismatch, cast-local-type
 script_name('avocado - bodycam')
 script_author('whynotban and constersuonsis')
-script_version('0.0.5')
+script_version('0.0.6')
 
 require('lib.moonloader')
 local imgui = require('mimgui')
@@ -137,7 +137,7 @@ local function checkForUpdate()
             if response.status_code == 200 then
                 local success, data = pcall(json.decode, response.text)
                 if success and type(data) == "table" then
-                    if data.latest and isVersionNewer(data.latest, thisScript().version) then
+                    if data.latest and data.latest ~= thisScript().version then
                         updateInfo.version = data.latest
                         updateInfo.url = data.updateurl
                         print("Установка обновления...(v.".. thisScript().version ..")")
