@@ -38,7 +38,7 @@ local sorted_dates_cache = {}
 local stats_data_cache = {}
 
 local default_pos_x = math.floor(screenW * (50 / 1920))
-local default_pos_y = math.floor(screenH * (670 / 1080))
+local default_pos_y = math.floor(screenH * (665 / 1080))
 
 local config = inicfg.load({
     main = {
@@ -393,7 +393,7 @@ local bodycamFrame = imgui.OnFrame(
         imgui.TextColored(gray_color, fa.VIDEO) 
         imgui.SameLine(cursorPosX + imgui.CalcTextSize(fa.VIDEO).x + 4) 
         imgui.SetCursorPosY(basePosY)
-        imgui.Text(u8" bodycam #"..(session_uid and tostring(session_uid) or "0000"))
+        imgui.Text(u8" bodycam #"..(session_uid and tostring(session_uid) or "N/A"))
         local circleIconWidth = imgui.CalcTextSize(fa.CIRCLE).x
         imgui.SameLine(imgui.GetWindowContentRegionMax().x - circleIconWidth)
         
@@ -415,7 +415,7 @@ local bodycamFrame = imgui.OnFrame(
             local elapsed = os.time() - recordingStartTime
             imgui.Text(formatDuration(elapsed) .. u8(' с начала записи'))
         else 
-            imgui.Text(u8('Запись выключена.')) 
+            imgui.Text(u8('Запись выключена')) 
         end
         imgui.End()
         imgui.PopStyleColor()
